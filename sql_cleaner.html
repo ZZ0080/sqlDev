@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQL 參數清理工具</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #181825;
+      padding: 12px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #89b4fa;
+      border-bottom: 1px solid #313244;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header span.sub {
+      font-size: 12px;
+      font-weight: normal;
+      color: #6c7086;
+    }
+    .main {
+      display: flex;
+      flex: 1;
+      gap: 0;
+      overflow: hidden;
+    }
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      background: #181825;
+      padding: 8px 14px;
+      font-size: 12px;
+      color: #a6adc8;
+      border-bottom: 1px solid #313244;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-header .badge {
+      font-size: 11px;
+      background: #313244;
+      border-radius: 4px;
+      padding: 2px 8px;
+      color: #cba6f7;
+    }
+    textarea {
+      flex: 1;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      border: none;
+      outline: none;
+      resize: none;
+      padding: 14px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      tab-size: 4;
+    }
+    textarea::placeholder { color: #45475a; }
+    .divider {
+      width: 1px;
+      background: #313244;
+    }
+    .controls {
+      background: #181825;
+      border-top: 1px solid #313244;
+      padding: 10px 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 7px 18px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    .btn-convert {
+      background: #89b4fa;
+      color: #1e1e2e;
+    }
+    .btn-convert:hover { background: #74c7ec; }
+    .btn-clear {
+      background: #313244;
+      color: #cdd6f4;
+    }
+    .btn-clear:hover { background: #45475a; }
+    .btn-copy {
+      background: #a6e3a1;
+      color: #1e1e2e;
+    }
+    .btn-copy:hover { background: #94e2d5; }
+    .btn-reverse {
+      background: #cba6f7;
+      color: #1e1e2e;
+    }
+    .btn-reverse:hover { background: #f5c2e7; }
+    .status {
+      font-size: 12px;
+      color: #a6adc8;
+      margin-left: auto;
+    }
+    .status.ok { color: #a6e3a1; }
+    .status.err { color: #f38ba8; }
+
+
+  </style>
+</head>
+<body>
+  <header>
+    🧹 SQL 參數清理工具
+    <span class="sub">{?param} → :param　|　sbSql.append("...");　|　Java 字串拼接 → 純 SQL</span>
+  </header>
+
+  <div class="main">
+    <!-- 左側：輸入 -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>貼入原始 SQL</span>
+        <span class="badge" id="input-lines">0 行</span>
+      </div>
+      <textarea id="input" placeholder="將從 Java 或報表工具複製的 SQL 貼在這裡...&#10;&#10;支援格式：&#10;  {?parm_name}  →  :parm_name&#10;  sbSql.append(&quot; select ... &quot;);  →  純 SQL&#10;  &quot;select ...&quot; + &quot;where ...&quot;;  →  純 SQL"></textarea>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- 右側：輸出 -->
+    <div class="panel">
+      <div class="panel-header">
+        <span>清理後 SQL</span>
+        <span class="badge" id="output-lines">0 行</span>
+      </div>
+      <textarea id="output" readonly placeholder="轉換結果會顯示在這裡..."></textarea>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn-convert" onclick="convert()">▶ 轉換</button>
+    <button class="btn-reverse" onclick="convertReverse()">↩ 反向轉換</button>
+    <button class="btn-clear" onclick="clearAll()">✕ 清除</button>
+    <button class="btn-copy" onclick="copyOutput()">⎘ 複製結果</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <script>
+    const inputEl = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+    const statusEl = document.getElementById('status');
+
+    inputEl.addEventListener('input', () => updateLineCount('input-lines', inputEl.value));
+
+    function updateLineCount(id, text) {
+      const lines = text ? text.split('\n').length : 0;
+      document.getElementById(id).textContent = lines + ' 行';
+    }
+
+    // 處理 sbSql.append("..."); 格式
+    function preprocessJava(text) {
+      // 判斷是否為 Java sbSql.append 格式 (至少一行符合)
+      if (!/sbSql\.append\s*\(/.test(text)) return text;
+
+      const lines = text.split('\n');
+      const parts = [];
+      for (const line of lines) {
+        // sbSql.append(" ... "); 或 sbSql.append(" ... " + var + " ...");
+        // 先嘗試完整 append 行
+        const stripped = line.trim();
+        // 移除 sbSql.append( 和結尾 );
+        const m = stripped.match(/^sbSql\.append\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$/);
+        if (m) {
+          let inner = m[1];
+          let result = '';
+          let pos = 0;
+          while (pos < inner.length) {
+            if (inner[pos] === '"') {
+              let end = pos + 1;
+              while (end < inner.length && inner[end] !== '"') {
+                if (inner[end] === '\\') end++;
+                end++;
+              }
+              result += inner.substring(pos + 1, end);
+              pos = end + 1;
+            } else {
+              const varM = inner.substring(pos).match(/^\s*\+\s*([A-Za-z_]\w*)\s*\+?\s*/);
+              if (varM) {
+                result += '{?' + varM[1] + '}';
+                pos += varM[0].length;
+              } else {
+                pos++;
+              }
+            }
+          }
+          parts.push(result);
+        } else if (stripped.length > 0) {
+          parts.push(line);
+        }
+      }
+      return parts.join('\n');
+    }
+
+    // 處理 Java 字串拼接格式："..." + "..." + "..."; → 純 SQL
+    // 每行格式為：[空白] [+] "sql 片段" [+] [;]
+    function preprocessJavaConcat(text) {
+      const lines = text.split('\n');
+      // 偵測：至少一行符合
+      // 支援：(可選 Java變數宣告=) (可選+) "..." (可選+或;)
+      // 例：String sql = "select..."  /  + "and..."  /  "WHEN..."
+      const pattern = /^(?:[^"=]*=\s*)?(?:\+\s*)?"([\s\S]*?)"\s*(?:[+;]\s*)?$/;
+      const isConcat = lines.some(l => pattern.test(l.trim()));
+      if (!isConcat) return text;
+
+      const parts = [];
+      for (const line of lines) {
+        const stripped = line.trim();
+        if (!stripped) continue;
+        const m = stripped.match(/^(?:[^"=]*=\s*)?(?:\+\s*)?"([\s\S]*?)"\s*(?:[+;]\s*)?$/);
+        if (m) {
+          parts.push(m[1]);
+        } else {
+          parts.push(line);
+        }
+      }
+      return parts.join('\n');
+    }
+
+    // {?parm_name} → :parm_name
+    function replaceParams(text) {
+      return text.replace(/\{[?](\w+)\}/g, ':$1');
+    }
+
+    // IN_SETYEAR → :IN_SETYEAR（識別 IN_ 開頭全大寫參數）
+    function replaceInParams(text) {
+      return text.replace(/\bIN_[A-Z][A-Z0-9_]*\b/g, ':$&');
+    }
+
+    function convert() {
+      const raw = inputEl.value;
+      if (!raw.trim()) {
+        setStatus('請先貼入 SQL', false);
+        return;
+      }
+      const step1 = preprocessJava(preprocessJavaConcat(raw));
+      const step2 = replaceParams(step1);   // {?x} → :x
+      const step3 = replaceInParams(step2); // IN_X → :IN_X
+      outputEl.value = step3.trim();
+      updateLineCount('output-lines', outputEl.value);
+      setStatus('轉換完成 ✓', true);
+    }
+
+    function clearAll() {
+      inputEl.value = '';
+      outputEl.value = '';
+      updateLineCount('input-lines', '');
+      updateLineCount('output-lines', '');
+      setStatus('');
+    }
+
+    function copyOutput() {
+      if (!outputEl.value) { setStatus('沒有內容可複製', false); return; }
+      navigator.clipboard.writeText(outputEl.value).then(() => {
+        setStatus('已複製到剪貼簿 ✓', true);
+      }).catch(() => {
+        outputEl.select();
+        document.execCommand('copy');
+        setStatus('已複製到剪貼簿 ✓', true);
+      });
+    }
+
+    function setStatus(msg, ok) {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (ok === true ? ' ok' : ok === false ? ' err' : '');
+    }
+
+    // 反向轉換：
+    //   :IN_SETYEAR → IN_SETYEAR（IN_ 開頭全大寫還原）
+    //   :parm_name  → {?parm_name}（其餘還原為報表工具格式）
+    function convertReverse() {
+      const raw = inputEl.value;
+      if (!raw.trim()) { setStatus('請先貼入 SQL', false); return; }
+      const result = raw.replace(/:([A-Za-z_]\w*)/g, (_, name) => {
+        return /^IN_[A-Z][A-Z0-9_]*$/.test(name) ? name : `{?${name}}`;
+      });
+      outputEl.value = result.trim();
+      updateLineCount('output-lines', outputEl.value);
+      setStatus('反向轉換完成 ✓', true);
+    }
+
+  </script>
+</body>
+</html>
