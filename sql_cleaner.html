@@ -122,6 +122,17 @@
     }
     .status.ok { color: #a6e3a1; }
     .status.err { color: #f38ba8; }
+    .btn-doc {
+      margin-left: auto;
+      font-size: 12px;
+      color: #a6adc8;
+      text-decoration: none;
+      padding: 4px 12px;
+      border: 1px solid #45475a;
+      border-radius: 5px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-doc:hover { color: #89b4fa; border-color: #89b4fa; }
 
 
   </style>
@@ -130,6 +141,7 @@
   <header>
     🧹 SQL 參數清理工具
     <span class="sub">{?param} → :param　|　sbSql.append("...");　|　Java 字串拼接 → 純 SQL</span>
+    <a class="btn-doc" href="https://github.com/ZZ0080/sqlDev/blob/master/sql_cleaner_README.md" target="_blank">📖 說明文件</a>
   </header>
 
   <div class="main">
