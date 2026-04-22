@@ -133,6 +133,37 @@
       transition: color 0.15s, border-color 0.15s;
     }
     .btn-doc:hover { color: #89b4fa; border-color: #89b4fa; }
+    .controls-row2 {
+      background: #181825;
+      border-top: 1px solid #2a2a3e;
+      padding: 8px 16px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .java-label {
+      font-size: 12px;
+      color: #a6adc8;
+      white-space: nowrap;
+    }
+    .java-select, .java-input {
+      background: #1e1e2e;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      color: #cdd6f4;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-family: 'Consolas', monospace;
+      outline: none;
+    }
+    .java-select:focus, .java-input:focus { border-color: #89b4fa; }
+    .java-input { width: 110px; }
+    .btn-java {
+      background: #f9e2af;
+      color: #1e1e2e;
+    }
+    .btn-java:hover { background: #fab387; }
 
 
   </style>
@@ -172,6 +203,17 @@
     <button class="btn-clear" onclick="clearAll()">✕ 清除</button>
     <button class="btn-copy" onclick="copyOutput()">⎘ 複製結果</button>
     <span class="status" id="status"></span>
+  </div>
+
+  <div class="controls-row2">
+    <span class="java-label">轉為 Java：</span>
+    <select id="java-format" class="java-select">
+      <option value="append">StringBuffer / StringBuilder（append）</option>
+      <option value="concat">字串拼接（+）</option>
+    </select>
+    <span class="java-label">變數名稱：</span>
+    <input type="text" id="java-varname" class="java-input" value="sbSql" placeholder="變數名稱" />
+    <button class="btn-java" onclick="convertToJava()">⇄ 轉為 Java</button>
   </div>
 
   <script>
@@ -315,6 +357,30 @@
       outputEl.value = result.trim();
       updateLineCount('output-lines', outputEl.value);
       setStatus('反向轉換完成 ✓', true);
+    }
+
+    // 純 SQL 轉為 Java 格式
+    function convertToJava() {
+      const raw = inputEl.value;
+      if (!raw.trim()) { setStatus('請先貼入 SQL', false); return; }
+
+      const format  = document.getElementById('java-format').value;
+      const varname = document.getElementById('java-varname').value.trim() || 'sbSql';
+      const lines   = raw.split('\n').filter(l => l.trim().length > 0);
+
+      let result;
+      if (format === 'append') {
+        result = lines.map(l => `${varname}.append(" ${l.trim()} ");`).join('\n');
+      } else {
+        // 字串拼接 (+) 格式
+        const first = `String ${varname} = " ${lines[0].trim()} "`;
+        const rest  = lines.slice(1).map(l => `    + " ${l.trim()} "`);
+        result = [first, ...rest].join('\n') + ';';
+      }
+
+      outputEl.value = result;
+      updateLineCount('output-lines', outputEl.value);
+      setStatus('已轉為 Java 格式 ✓', true);
     }
 
   </script>
