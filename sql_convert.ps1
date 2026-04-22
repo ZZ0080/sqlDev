@@ -1,129 +1,107 @@
-# SQL 參數清理工具 - 命令列版本
-# 使用方式：從剪貼簿讀取 SQL，轉換後寫回剪貼簿
-#
-# 模式 (Mode):
-#   convert   : 報表/Java 格式 → 可執行 SQL（預設）
-#   reverse   : :param → {?param}，:IN_XXX → IN_XXX
-#   to-append : 純 SQL → sbSql.append("..."); 格式
-#   to-concat : 純 SQL → String var = "..." + "..." 格式
-
+# SQL Convert Tool - Read from clipboard, write back to clipboard
+# Modes: convert | reverse | to-append | to-concat
 param(
-    [string]$Mode     = "convert",
-    [string]$JavaVar  = "sbSql"
+    [string]$Mode    = 'convert',
+    [string]$JavaVar = 'sbSql'
 )
 
-# ── 讀取剪貼簿 ────────────────────────────────────────────
 $text = Get-Clipboard -Raw
 if (-not $text -or $text.Trim() -eq '') {
-    Write-Host "⚠ 剪貼簿無內容，請先複製 SQL。" -ForegroundColor Yellow
+    Write-Host 'No clipboard content. Please copy SQL first.' -ForegroundColor Yellow
     exit 1
 }
 
-# ── 函式：Java 字串拼接 "..." + "..." → 純 SQL ───────────
+# Java string concat "..." + "..." -> plain SQL
 function ConvertJavaConcat([string]$t) {
+    $dq = [char]34
     $lines = $t -split "`n"
-    $pattern = '^(?:[^"=]*=\s*)?(?:\+\s*)?"(.*?)"\s*(?:[+;]\s*)?$'
-    $hasMatch = $false
-    foreach ($line in $lines) {
-        if ($line.Trim() -match $pattern) { $hasMatch = $true; break }
-    }
-    if (-not $hasMatch) { return $t }
-
     $parts = [System.Collections.Generic.List[string]]::new()
+    $matchCount = 0
     foreach ($line in $lines) {
-        $stripped = $line.Trim()
-        if (-not $stripped) { continue }
-        if ($stripped -match $pattern) {
-            $parts.Add($Matches[1])
-        } else {
-            $parts.Add($line)
+        $s = $line.Trim()
+        if (-not $s) { continue }
+        $tmp = if ($s[0] -eq '+') { $s.Substring(1).TrimStart() } else { $s }
+        if ($tmp -match '^[A-Za-z_]\w*(?:\s+[A-Za-z_]\w*)?\s*=\s*') {
+            $tmp = $tmp.Substring($Matches[0].Length)
         }
+        if ($tmp.Length -gt 0 -and $tmp[0] -eq $dq) {
+            $e = $tmp.TrimEnd()
+            if ($e[-1] -eq ';' -or $e[-1] -eq '+') { $e = $e.Substring(0, $e.Length - 1).TrimEnd() }
+            if ($e[-1] -eq $dq -and $e.Length -ge 2) {
+                $parts.Add($e.Substring(1, $e.Length - 2))
+                $matchCount++
+                continue
+            }
+        }
+        $parts.Add($line)
     }
+    if ($matchCount -eq 0) { return $t }
     return $parts -join "`n"
 }
 
-# ── 函式：sbSql.append("..."); → 純 SQL ──────────────────
+# sbSql.append("..."); -> plain SQL
 function ConvertJavaAppend([string]$t) {
-    if ($t -notmatch 'sbSql\.append\s*\(') { return $t }
-
+    if ($t -notmatch 'sbSql\.append') { return $t }
+    $dq = [char]34
+    $bs = [char]92
     $lines = $t -split "`n"
     $parts = [System.Collections.Generic.List[string]]::new()
     foreach ($line in $lines) {
-        $stripped = $line.Trim()
-        if ($stripped -match '^sbSql\.append\s*\(\s*(.*?)\s*\)\s*;?\s*$') {
-            $inner = $Matches[1]
-            $sb = [System.Text.StringBuilder]::new()
-            $pos = 0
-            while ($pos -lt $inner.Length) {
-                if ($inner[$pos] -eq '"') {
-                    $end = $pos + 1
-                    while ($end -lt $inner.Length -and $inner[$end] -ne '"') {
-                        if ($inner[$end] -eq '\') { $end++ }
-                        $end++
-                    }
-                    if ($end -gt $pos + 1) {
-                        [void]$sb.Append($inner.Substring($pos + 1, $end - $pos - 1))
-                    }
-                    $pos = $end + 1
-                } else {
-                    $sub = $inner.Substring($pos)
-                    if ($sub -match '^\s*\+\s*([A-Za-z_]\w*)\s*(\+)?\s*') {
+        $s = $line.Trim()
+        if ($s -match '^sbSql\.append\s*\(') {
+            $start = $s.IndexOf('(')
+            $end   = $s.LastIndexOf(')')
+            if ($start -ge 0 -and $end -gt $start) {
+                $inner = $s.Substring($start + 1, $end - $start - 1).Trim()
+                $sb  = [System.Text.StringBuilder]::new()
+                $pos = 0
+                while ($pos -lt $inner.Length) {
+                    if ($inner[$pos] -eq $dq) {
+                        $e2 = $pos + 1
+                        while ($e2 -lt $inner.Length -and $inner[$e2] -ne $dq) {
+                            if ($inner[$e2] -eq $bs) { $e2++ }
+                            $e2++
+                        }
+                        if ($e2 -gt $pos + 1) { [void]$sb.Append($inner.Substring($pos + 1, $e2 - $pos - 1)) }
+                        $pos = $e2 + 1
+                    } elseif ($inner.Substring($pos) -match '^\s*\+\s*([A-Za-z_]\w*)\s*') {
                         [void]$sb.Append('{?' + $Matches[1] + '}')
                         $pos += $Matches[0].Length
-                    } else {
-                        $pos++
-                    }
+                    } else { $pos++ }
                 }
-            }
-            $parts.Add($sb.ToString())
-        } elseif ($stripped) {
-            $parts.Add($line)
-        }
+                $parts.Add($sb.ToString())
+            } else { $parts.Add($line) }
+        } elseif ($s) { $parts.Add($line) }
     }
     return $parts -join "`n"
 }
 
-# ── 主要轉換邏輯 ──────────────────────────────────────────
 $result = $text
-
 switch ($Mode) {
-
-    "convert" {
+    'convert' {
         $result = ConvertJavaConcat $result
         $result = ConvertJavaAppend $result
-        # {?param} → :param
         $result = [regex]::Replace($result, '\{[?](\w+)\}', ':$1')
-        # IN_XXX → :IN_XXX（全大寫 IN_ 開頭）
         $result = [regex]::Replace($result, '\bIN_[A-Z][A-Z0-9_]+\b', ':$0')
     }
-
-    "reverse" {
-        # :IN_XXX → IN_XXX（先處理，避免被下一步誤判）
+    'reverse' {
         $result = [regex]::Replace($result, ':(IN_[A-Z][A-Z0-9_]+)', '$1')
-        # :param → {?param}
         $result = [regex]::Replace($result, ':([A-Za-z_]\w*)', '{?$1}')
     }
-
-    "to-append" {
+    'to-append' {
         $lines = ($result -split "`n") | Where-Object { $_.Trim() -ne '' }
-        $result = ($lines | ForEach-Object {
-            "${JavaVar}.append(`" $($_.Trim()) `");"
-        }) -join "`n"
+        $result = ($lines | ForEach-Object { "$JavaVar.append(`" $($_.Trim()) `");" }) -join "`n"
     }
-
-    "to-concat" {
+    'to-concat' {
         $lines = ($result -split "`n") | Where-Object { $_.Trim() -ne '' }
         if ($lines.Count -eq 0) { break }
         $out = [System.Collections.Generic.List[string]]::new()
-        $out.Add("String ${JavaVar} = `" $($lines[0].Trim()) `"")
-        for ($i = 1; $i -lt $lines.Count; $i++) {
-            $out.Add("    + `" $($lines[$i].Trim()) `"")
-        }
-        $result = ($out -join "`n") + ";"
+        $out.Add("String $JavaVar = `" $($lines[0].Trim()) `"")
+        for ($i = 1; $i -lt $lines.Count; $i++) { $out.Add("    + `" $($lines[$i].Trim()) `"") }
+        $result = ($out -join "`n") + ';'
     }
 }
 
-# ── 寫回剪貼簿 ────────────────────────────────────────────
-$result = $result.Trim()
+$result = if ($result) { $result.Trim() } else { '' }
 Set-Clipboard -Value $result
-Write-Host "✓ 完成 ($Mode) — 已複製到剪貼簿，請按 Ctrl+V 貼回" -ForegroundColor Green
+Write-Host "Done ($Mode) - copied to clipboard. Press Ctrl+V to paste." -ForegroundColor Green
