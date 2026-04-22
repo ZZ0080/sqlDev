@@ -11,6 +11,7 @@
 |------|------|------|
 | ▶ 轉換 | 原始 → 可執行 SQL | 處理報表工具參數、Java 程式碼、IN_ 參數 → 純 SQL |
 | ↩ 反向轉換 | 可執行 SQL → 原始格式 | `:param` → `{?param}`；`:IN_SETYEAR` → `IN_SETYEAR` |
+| ⇄ 轉為 Java | 純 SQL → Java 程式碼 | 純 SQL 轉為 `append` 或字串拼接格式 |
 | ✕ 清除 | — | 清空左右兩側所有內容 |
 | ⎘ 複製結果 | — | 複製右側清理後的 SQL 到剪貼簿 |
 
@@ -193,6 +194,16 @@ WHERE m.reward_plan = IN_REWARD_PLAN
 4. 右側出現可直接執行的 SQL
 5. 點擊「**⎘ 複製結果**」貼到 SQL 開發工具（如 SQLcl、DBeaver、SQL Developer）執行
 
+### 轉為 Java（純 SQL → Java 程式碼）
+
+1. 將純 SQL 貼入左側
+2. 在工具列選擇輸出格式：
+   - **StringBuffer / StringBuilder（append）**
+   - **字串拼接（+）**
+3. 填入變數名稱（預設 `sbSql`）
+4. 點擊「**⇄ 轉為 Java**」
+5. 點擊「**⎘ 複製結果**」貼回 Java 程式碼
+
 ### 反向轉換（複製回報表工具 / 預存程序）
 
 1. 將已調整好的可執行 SQL 貼入左側
@@ -212,3 +223,41 @@ WHERE m.reward_plan = IN_REWARD_PLAN
 | `IN_SETYEAR`（全大寫）| `:IN_SETYEAR` | ▶ 轉換 |
 | `:parm_name` | `{?parm_name}` | ↩ 反向轉換 |
 | `:IN_SETYEAR` | `IN_SETYEAR` | ↩ 反向轉換 |
+| 純 SQL（多行） | `sbSql.append(" ... ");`（每行） | ⇄ 轉為 Java（append）|
+| 純 SQL（多行） | `String var = "..." + "...";` | ⇄ 轉為 Java（+）|
+
+---
+
+## 轉為 Java 格式範例
+
+### append 模式（變數名 `sbSql`）
+
+**輸入 SQL**
+```sql
+SELECT * FROM policy.target_org
+WHERE org = :parm_org
+ORDER BY org
+```
+
+**⇄ 轉為 Java 後**
+```java
+sbSql.append(" SELECT * FROM policy.target_org ");
+sbSql.append(" WHERE org = :parm_org ");
+sbSql.append(" ORDER BY org ");
+```
+
+### 字串拼接模式（變數名 `sql`）
+
+**輸入 SQL**
+```sql
+SELECT * FROM policy.target_org
+WHERE org = :parm_org
+ORDER BY org
+```
+
+**⇄ 轉為 Java 後**
+```java
+String sql = " SELECT * FROM policy.target_org "
+    + " WHERE org = :parm_org "
+    + " ORDER BY org ";
+```
